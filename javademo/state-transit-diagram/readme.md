@@ -443,6 +443,8 @@ java --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util
 
 混合这两类参数会导致编译错误和运行时问题，这就是为什么必须将它们分开配置。
 
+### 如果需要将DOT文件转换为图像，可以使用GraphViz或在线DOT查看器（如 https://dreampuf.github.io/GraphvizOnline/
+
 ## 总结
 
 两种JDI连接方式各有优缺点，但附加连接器方式在现代JDK中通常更可靠。无论使用哪种方式，正确区分编译时和运行时参数都是确保JDI程序能够正常工作的关键。
