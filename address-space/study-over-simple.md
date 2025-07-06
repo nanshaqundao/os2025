@@ -162,6 +162,117 @@ Low Addresses (0x400000)
 - The `[vdso]` (Virtual Dynamic Shared Object) region contains kernel-provided code that implements certain system calls in user space, using data from `[vvar]`.
 - **Summary:** To get data from `[vvar]`, always use standard APIs in your code. You cannot reliably or meaningfully access `[vvar]` directly from outside the process or in a debugger.
 
+## Initial Stack Layout: Understanding execve() Process Startup
+
+### What is the initial stack layout when execve() starts a new process?
+
+When the kernel executes a new program via `execve()`, it sets up a specific stack layout containing command-line arguments and environment variables. This layout is standardized and follows the System V ABI.
+
+### How is the stack organized from high to low addresses?
+
+```
+High addresses (stack grows down)
+┌─────────────────────────────────────┐
+│ Environment strings                 │ <- "PATH=/usr/bin\0", "HOME=/home/user\0"
+│ "PATH=/usr/bin\0"                  │
+│ "HOME=/home/user\0"                │
+│ "SHELL=/bin/bash\0"                │
+│ ...                                │
+├─────────────────────────────────────┤
+│ Argument strings                    │ <- "./simple\0", "arg1\0", "arg2\0"
+│ "./simple\0"                       │
+│ "arg1\0"                           │
+│ "arg2\0"                           │
+├─────────────────────────────────────┤
+│ NULL                               │ <- End of envp array
+├─────────────────────────────────────┤
+│ envp[n-1]                          │ <- Environment variable pointers
+│ envp[1]                            │
+│ envp[0]                            │
+├─────────────────────────────────────┤
+│ NULL                               │ <- End of argv array
+├─────────────────────────────────────┤
+│ argv[argc-1]                       │ <- Command line argument pointers
+│ argv[1]                            │
+│ argv[0]                            │
+├─────────────────────────────────────┤
+│ argc                               │ <- Number of arguments
+└─────────────────────────────────────┘
+Low addresses (RSP points here at startup)
+```
+
+### What exactly is argv[x] and how does it work?
+
+**`argv[x]` is a pointer** that points to the actual string value stored at a higher memory address on the stack.
+
+**Key points:**
+- `argc` contains the count of command-line arguments
+- `argv` is an array of pointers (`char **`)
+- Each `argv[x]` contains a memory address pointing to a null-terminated string
+- The actual string data is stored higher up on the stack
+
+### Can you show a concrete example?
+
+For command: `./simple arg1 arg2`
+
+```
+High addresses
+┌─────────────────────────────────────┐
+│ "./simple\0"          ←─────────────┼─── argv[0] points here (0x7fff1220)
+│ "arg1\0"              ←─────────────┼─── argv[1] points here (0x7fff1230)
+│ "arg2\0"              ←─────────────┼─── argv[2] points here (0x7fff1240)
+├─────────────────────────────────────┤
+│ NULL (0x0)                         │
+├─────────────────────────────────────┤
+│ 0x7fff1240 (ptr to "arg2")        │ ← argv[2]
+│ 0x7fff1230 (ptr to "arg1")        │ ← argv[1]
+│ 0x7fff1220 (ptr to "./simple")    │ ← argv[0]
+├─────────────────────────────────────┤
+│ 3                                  │ ← argc
+└─────────────────────────────────────┘
+Low addresses (RSP points here)
+```
+
+### How do main() parameters map to this layout?
+
+When `main(int argc, char **argv, char **envp)` is called:
+
+1. **argc** = 3 (number of arguments including program name)
+2. **argv** = pointer to the array of argument pointers
+3. **envp** = pointer to the array of environment variable pointers
+
+The C runtime library (_start function) extracts these values from the stack and passes them to main().
+
+### What's the relationship between pointers and string data?
+
+- `argv[0]` stores address 0x7fff1220, which points to string "./simple"
+- `argv[1]` stores address 0x7fff1230, which points to string "arg1"
+- `argv[2]` stores address 0x7fff1240, which points to string "arg2"
+
+This is why `argv` is declared as `char **` (pointer to pointer to char) - it's an array of pointers where each element points to a string.
+
+### How can you verify this in practice?
+
+Using GDB on the simple program:
+```bash
+gdb ./simple
+(gdb) break main
+(gdb) run arg1 arg2
+(gdb) print argc          # Shows: 3
+(gdb) print argv[0]       # Shows: address like 0x7fff1220
+(gdb) print *argv[0]      # Shows: '.' (first char of "./simple")
+(gdb) x/s argv[0]         # Shows: "./simple"
+(gdb) print argv[1]       # Shows: address like 0x7fff1230
+(gdb) x/s argv[1]         # Shows: "arg1"
+```
+
+### Why does the kernel organize the stack this way?
+
+1. **Efficiency**: All arguments and environment variables are in one contiguous memory region
+2. **Standardization**: Follows System V ABI specification for consistent behavior
+3. **Security**: Kernel controls the layout, preventing manipulation during process startup
+4. **Simplicity**: C runtime can easily extract argc/argv/envp from known stack positions
+
 ---
 
 This section summarizes the hands-on exploration and Q&A about the 'simple' program, its ELF structure, memory layout, and debugging techniques. Use it as a quick reference for future study or review.
